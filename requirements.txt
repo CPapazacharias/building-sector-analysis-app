@@ -1,0 +1,6 @@
+geopandas
+streamlit
+altair
+pydeck
+requests
+shapely
