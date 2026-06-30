@@ -231,6 +231,7 @@ if result and result["building_count"] > 0:
         st.metric("Residential area", f"{result['living_area']:,.0f} m²")
         st.metric("Commercial area", f"{result['commercial_area']:,.0f} m²")
         st.metric("Industrial area", f"{result['industrial_area']:,.0f} m²")
+        st.metric("Agricultural area", f"{result['agricultural_area']:,.0f} m²")
     with col_pie:
         by_type = result["by_type"]
         domain = list(color_map.keys())

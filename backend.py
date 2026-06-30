@@ -44,12 +44,14 @@ print(f"Loaded {len(_polygons)} polygons.")
 
 def calc_areas(gdf_in: gpd.GeoDataFrame, floor_multiplier: float) -> gpd.GeoDataFrame:
     gdf_in = gdf_in.copy()
-    gdf_in["living_area"]     = 0.0
-    gdf_in["commercial_area"] = 0.0
-    gdf_in["industrial_area"] = 0.0
+    gdf_in["living_area"]      = 0.0
+    gdf_in["commercial_area"]  = 0.0
+    gdf_in["industrial_area"]  = 0.0
+    gdf_in["agricultural_area"] = 0.0
     res   = gdf_in["B_TYPE"] == "Residential"
     mixed = gdf_in["B_TYPE"] == "Mixed Use"
     ind   = gdf_in["B_TYPE"] == "Industrial"
+    agri  = gdf_in["B_TYPE"] == "Agriculture"
     gdf_in.loc[res, "living_area"] = (
         gdf_in.loc[res, "FLOOR_QTY"] * floor_multiplier * gdf_in.loc[res, "SHAPE.STArea()"]
     )
@@ -60,6 +62,9 @@ def calc_areas(gdf_in: gpd.GeoDataFrame, floor_multiplier: float) -> gpd.GeoData
     gdf_in.loc[mixed, "commercial_area"] = mixed_total * 0.5
     gdf_in.loc[ind, "industrial_area"] = (
         gdf_in.loc[ind, "FLOOR_QTY"] * gdf_in.loc[ind, "SHAPE.STArea()"]
+    )
+    gdf_in.loc[agri, "agricultural_area"] = (
+        gdf_in.loc[agri, "FLOOR_QTY"] * gdf_in.loc[agri, "SHAPE.STArea()"]
     )
     gdf_in["residents"] = (gdf_in["living_area"] / 75).round(0).astype(int)
     return gdf_in
@@ -117,6 +122,7 @@ def analyse(req: AnalyseRequest):
             "living_area": 0.0,
             "commercial_area": 0.0,
             "industrial_area": 0.0,
+            "agricultural_area": 0.0,
             "by_type": [],
             "buildings": [],
         }
@@ -142,6 +148,7 @@ def analyse(req: AnalyseRequest):
         "living_area": round(float(within["living_area"].sum()), 1),
         "commercial_area": round(float(within["commercial_area"].sum()), 1),
         "industrial_area": round(float(within["industrial_area"].sum()), 1),
+        "agricultural_area": round(float(within["agricultural_area"].sum()), 1),
         "by_type": by_type,
         "buildings": buildings,
     }
