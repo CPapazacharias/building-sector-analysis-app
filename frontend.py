@@ -224,11 +224,12 @@ st.markdown("---")
 st.subheader(zone["name"])
 
 if result and result["building_count"] > 0:
-    col_metrics, col_pie, col_a, col_b = st.columns([1, 1.5, 1, 1])
-    with col_metrics:
+    col_m1, col_m2, col_pie, col_a, col_b = st.columns([1, 1, 1.5, 1, 1])
+    with col_m1:
         st.metric("Buildings", f"{result['building_count']:,}")
         st.metric("Estimated residents", f"{result['residents']:,}")
         st.metric("Residential area", f"{result['living_area']:,.0f} m²")
+    with col_m2:
         st.metric("Commercial area", f"{result['commercial_area']:,.0f} m²")
         st.metric("Industrial area", f"{result['industrial_area']:,.0f} m²")
         st.metric("Agricultural area", f"{result['agricultural_area']:,.0f} m²")
