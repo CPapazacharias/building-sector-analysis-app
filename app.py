@@ -380,10 +380,14 @@ if not gdf_result.empty:
         st.metric("Buildings", f"{len(gdf_result):,}")
         st.metric("Estimated residents", f"{int(gdf_result['residents'].sum()):,}")
         st.metric("Residential area", f"{gdf_result['living_area'].sum():,.0f} m²")
+    hospital_area = gdf_result.loc[
+        gdf_result["B_TYPE"] == "Health centre / hospital", "SHAPE.STArea()"
+    ].sum()
     with col_m2:
         st.metric("Commercial area", f"{gdf_result['commercial_area'].sum():,.0f} m²")
         st.metric("Industrial area", f"{gdf_result['industrial_area'].sum():,.0f} m²")
         st.metric("Agricultural area", f"{gdf_result['agricultural_area'].sum():,.0f} m²")
+        st.metric("Health / hospital area", f"{hospital_area:,.0f} m²")
     with col_pie:
         type_counts = gdf_result["B_TYPE"].value_counts().reset_index()
         type_counts.columns = ["Type", "Count"]
