@@ -4,3 +4,6 @@ altair
 pydeck
 requests
 shapely
+fastapi
+uvicorn
+pandas
