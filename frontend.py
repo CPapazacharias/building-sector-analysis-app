@@ -75,7 +75,7 @@ if "analysis_cache" not in st.session_state:
 with st.sidebar:
     st.title("Building Sector Analysis")
     st.subheader("Parameters")
-    floor_multiplier = st.slider("Floor multiplier", min_value=0.1, max_value=1.0, value=0.5, step=0.05)
+    area_multiplier = st.slider("Area multiplier", min_value=0.1, max_value=1.0, value=0.5, step=0.05)
 
     st.markdown("---")
     st.subheader("Substations")
@@ -140,10 +140,10 @@ n_zones = len(st.session_state.zones)
 result = None
 
 if poly_idx is not None:
-    cache_key = (poly_idx, floor_multiplier)
+    cache_key = (poly_idx, area_multiplier)
     if cache_key not in st.session_state.analysis_cache:
         with st.spinner(f"Analysing {zone['name']}..."):
-            resp = http.post(f"{API}/analyse", json={"poly_idx": poly_idx, "floor_multiplier": floor_multiplier})
+            resp = http.post(f"{API}/analyse", json={"poly_idx": poly_idx, "area_multiplier": area_multiplier})
             st.session_state.analysis_cache[cache_key] = resp.json()
     result = st.session_state.analysis_cache[cache_key]
 
@@ -224,6 +224,11 @@ st.markdown("---")
 st.subheader(zone["name"])
 
 if result and result["building_count"] > 0:
+    # Clear type selection when polygon changes
+    if st.session_state.get("detail_poly") != poly_idx:
+        st.session_state.pop("selected_btype", None)
+        st.session_state["detail_poly"] = poly_idx
+
     col_m1, col_m2, col_pie, col_a, col_b = st.columns([1, 1, 1.5, 1, 1])
     with col_m1:
         st.metric("Buildings", f"{result['building_count']:,}")
@@ -235,28 +240,60 @@ if result and result["building_count"] > 0:
         st.metric("Agricultural area", f"{result['agricultural_area']:,.0f} m²")
     with col_pie:
         by_type = result["by_type"]
-        domain = list(color_map.keys())
-        range_ = [color_map[k] for k in domain]
+        PIE_GROUPS = {
+            "Nursery / kindergarten": "Education",
+            "Elementary school":      "Education",
+            "Secondary school":       "Education",
+            "Higher education":       "Education",
+            "Church / chapel":        "Religious",
+            "Monastery":              "Religious",
+            "Mosque":                 "Religious",
+            "Mixed religious / community": "Religious",
+            "Police station":         "Public services",
+            "Post office":            "Public services",
+            "Public utility office":  "Public services",
+        }
         pie_df = pd.DataFrame(by_type).rename(columns={"type": "Type", "count": "Count"})
+        pie_df["Type"] = pie_df["Type"].map(lambda t: PIE_GROUPS.get(t, t))
+        pie_df = pie_df.groupby("Type", as_index=False)["Count"].sum()
+        pie_domain = sorted(pie_df["Type"].unique())
+        pie_range = [color_map.get(t, BTYPE_COLORS[i % len(BTYPE_COLORS)]) for i, t in enumerate(pie_domain)]
         pie = (
             alt.Chart(pie_df)
             .mark_arc(innerRadius=40)
             .encode(
                 theta=alt.Theta("Count:Q"),
-                color=alt.Color("Type:N", scale=alt.Scale(domain=domain, range=range_), legend=alt.Legend(title="B_TYPE")),
+                color=alt.Color("Type:N", scale=alt.Scale(domain=pie_domain, range=pie_range), legend=alt.Legend(title="B_TYPE")),
                 tooltip=["Type:N", "Count:Q"],
             )
             .properties(height=300)
         )
         st.altair_chart(pie, use_container_width=True)
     with col_a:
-        st.markdown("**Count per B_TYPE**")
+        st.markdown("**Count per B_TYPE** — click to inspect")
         tc = pd.DataFrame(by_type).rename(columns={"type": "Type", "count": "Count"})[["Type", "Count"]]
-        st.dataframe(tc, use_container_width=True, hide_index=True)
+        tc_clickable = tc[tc["Type"] != "Residential"].reset_index(drop=True)
+        sel = st.dataframe(tc_clickable, use_container_width=True, hide_index=True,
+                           on_select="rerun", selection_mode="single-row")
+        if sel.selection.rows:
+            st.session_state.selected_btype = tc_clickable.iloc[sel.selection.rows[0]]["Type"]
     with col_b:
         st.markdown("**Living area per B_TYPE (m²)**")
         abt = pd.DataFrame(by_type).rename(columns={"type": "Type", "living_area": "Living Area (m²)"})[["Type", "Living Area (m²)"]]
         abt = abt.sort_values("Living Area (m²)", ascending=False)
         st.dataframe(abt, use_container_width=True, hide_index=True)
+
+    # Individual building detail — fetched only on row click
+    selected_btype = st.session_state.get("selected_btype")
+    if selected_btype:
+        detail_key = ("btype", poly_idx, selected_btype)
+        if detail_key not in st.session_state.analysis_cache:
+            with st.spinner(f"Loading {selected_btype} buildings..."):
+                resp = http.post(f"{API}/buildings", json={"poly_idx": poly_idx, "b_type": selected_btype})
+                st.session_state.analysis_cache[detail_key] = resp.json()
+        detail = st.session_state.analysis_cache[detail_key]
+        with st.expander(f"{selected_btype} — {detail['count']} buildings", expanded=True):
+            df_detail = pd.DataFrame(detail["buildings"])
+            st.dataframe(df_detail, use_container_width=True, hide_index=True)
 else:
     st.info("No buildings in this polygon." if poly_idx is not None else "No polygon matched for this zone.")
