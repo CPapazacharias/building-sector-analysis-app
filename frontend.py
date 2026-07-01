@@ -289,11 +289,18 @@ if result and result["building_count"] > 0:
         detail_key = ("btype", poly_idx, selected_btype)
         if detail_key not in st.session_state.analysis_cache:
             with st.spinner(f"Loading {selected_btype} buildings..."):
-                resp = http.post(f"{API}/buildings", json={"poly_idx": poly_idx, "b_type": selected_btype})
-                st.session_state.analysis_cache[detail_key] = resp.json()
-        detail = st.session_state.analysis_cache[detail_key]
-        with st.expander(f"{selected_btype} — {detail['count']} buildings", expanded=True):
-            df_detail = pd.DataFrame(detail["buildings"])
-            st.dataframe(df_detail, use_container_width=True, hide_index=True)
+                try:
+                    resp = http.post(f"{API}/buildings", json={"poly_idx": poly_idx, "b_type": selected_btype})
+                    resp.raise_for_status()
+                    st.session_state.analysis_cache[detail_key] = resp.json()
+                except Exception as e:
+                    st.error(f"Failed to load buildings: {e}")
+                    st.session_state.pop("selected_btype", None)
+                    st.stop()
+        detail = st.session_state.analysis_cache.get(detail_key)
+        if detail:
+            with st.expander(f"{selected_btype} — {detail['count']} buildings", expanded=True):
+                df_detail = pd.DataFrame(detail["buildings"])
+                st.dataframe(df_detail, use_container_width=True, hide_index=True)
 else:
     st.info("No buildings in this polygon." if poly_idx is not None else "No polygon matched for this zone.")

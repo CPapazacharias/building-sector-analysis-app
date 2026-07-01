@@ -236,6 +236,7 @@ def get_buildings_by_type(req: BuildingsRequest):
 
     subset = subset.copy()
     subset["FLOOR_QTY"] = subset["FLOOR_QTY"].fillna(1).astype(int)
+    subset["LANDMARKANAMEENG"] = subset["LANDMARKANAMEENG"].where(subset["LANDMARKANAMEENG"].notna(), other=None)
     out = subset[["LANDMARKANAMEENG", "SHAPE.STArea()", "FLOOR_QTY", "cy", "cx"]].copy()
     out = out.round({"SHAPE.STArea()": 1, "cy": 6, "cx": 6})
     out = out.rename(columns={
