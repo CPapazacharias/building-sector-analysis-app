@@ -1,6 +1,8 @@
 import math
 import colorsys
 import io
+import os
+import tempfile
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -9,10 +11,6 @@ import pandas as pd
 import pydeck as pdk
 import streamlit as st
 import altair as alt
-
-BU3_PATH  = r"C:\Users\chris\iCloudDrive\KIOS\failed\cyprus_BU3_full.gpkg"
-BU2_PATH  = r"C:\Users\chris\iCloudDrive\KIOS\failed\cyprus_BU2_full.gpkg"
-POLY_PATH = r"C:\Users\chris\iCloudDrive\KIOS\DistrTrSubstThPoly.geojson"
 
 BU2_LABELS = {
     0:  "Unclassified",
@@ -133,16 +131,25 @@ def calc_areas(gdf_in: gpd.GeoDataFrame, area_multiplier: float) -> gpd.GeoDataF
     return gdf_in
 
 
-# ── Data loading (cached for the lifetime of the server process) ──────────────
+# ── Data loading from uploaded bytes ─────────────────────────────────────────
 
-@st.cache_resource
-def load_data():
-    bu3 = gpd.read_file(BU3_PATH, columns=["B_TYPE", "FLOOR_QTY", "SHAPE.STArea()", "geometry"])
+def _read_gpkg(data: bytes, columns):
+    with tempfile.NamedTemporaryFile(suffix=".gpkg", delete=False) as f:
+        f.write(data)
+        tmp = f.name
+    try:
+        return gpd.read_file(tmp, columns=columns)
+    finally:
+        os.unlink(tmp)
+
+
+def build_dataset(bu3_bytes: bytes, bu2_bytes: bytes) -> gpd.GeoDataFrame:
+    bu3 = _read_gpkg(bu3_bytes, ["B_TYPE", "FLOOR_QTY", "SHAPE.STArea()", "geometry"])
     bu3["B_TYPE"] = bu3["B_TYPE"].apply(simplify_btype)
     bu3["cx"] = bu3.geometry.centroid.x
     bu3["cy"] = bu3.geometry.centroid.y
 
-    bu2 = gpd.read_file(BU2_PATH, columns=["CLASSIFICATION", "LANDMARKANAMEENG", "SHAPE.STArea()", "geometry"])
+    bu2 = _read_gpkg(bu2_bytes, ["CLASSIFICATION", "LANDMARKANAMEENG", "SHAPE.STArea()", "geometry"])
     bu2 = bu2[bu2["CLASSIFICATION"] != 1].copy()
     bu2["B_TYPE"] = bu2["CLASSIFICATION"].map(
         lambda c: BU2_LABELS.get(int(c), "Unclassified") if pd.notna(c) else "Unclassified"
@@ -164,9 +171,8 @@ def load_data():
     return gpd.GeoDataFrame(gdf, geometry="geometry", crs=bu2.crs)
 
 
-@st.cache_resource
-def load_polygons():
-    gdf = gpd.read_file(POLY_PATH)
+def build_polygons(poly_bytes: bytes) -> gpd.GeoDataFrame:
+    gdf = gpd.read_file(io.BytesIO(poly_bytes))
     if gdf.crs is None:
         gdf = gdf.set_crs("EPSG:4326")
     else:
@@ -202,14 +208,6 @@ def query_buildings_by_type(gdf, poly_geom, b_type):
 
 st.set_page_config(page_title="Building Sector Analysis", layout="wide", initial_sidebar_state="expanded")
 
-with st.spinner("Loading building data..."):
-    gdf = load_data()
-
-with st.spinner("Loading polygons..."):
-    polygons = load_polygons()
-
-poly_lookup = {row["SCADASUBSTSHORTID"]: int(idx) for idx, row in polygons.iterrows()}
-
 if "zones" not in st.session_state:
     st.session_state.zones = [{"lat": 35.1856, "lon": 33.3823, "name": "Zone 1", "poly_idx": None}]
 if "selected_zone" not in st.session_state:
@@ -221,6 +219,29 @@ if "analysis_cache" not in st.session_state:
 
 with st.sidebar:
     st.title("Building Sector Analysis")
+
+    st.subheader("Data")
+    bu3_up   = st.file_uploader("BU3 buildings (.gpkg)",  type=["gpkg"])
+    bu2_up   = st.file_uploader("BU2 buildings (.gpkg)",  type=["gpkg"])
+    poly_up  = st.file_uploader("Polygons (.geojson)",    type=["geojson", "json"])
+
+    if bu3_up and bu2_up and poly_up:
+        data_id = (bu3_up.name, bu3_up.size, bu2_up.name, bu2_up.size, poly_up.name, poly_up.size)
+        if st.session_state.get("data_id") != data_id:
+            with st.spinner("Loading datasets (this may take a minute)..."):
+                st.session_state.gdf      = build_dataset(bu3_up.read(), bu2_up.read())
+                st.session_state.polygons = build_polygons(poly_up.read())
+                st.session_state.data_id  = data_id
+                st.session_state.analysis_cache = {}
+    else:
+        st.info("Upload BU3, BU2, and Polygons files to begin.")
+        st.stop()
+
+    gdf      = st.session_state.gdf
+    polygons = st.session_state.polygons
+    poly_lookup = {row["SCADASUBSTSHORTID"]: int(idx) for idx, row in polygons.iterrows()}
+
+    st.markdown("---")
     st.subheader("Parameters")
     area_multiplier = st.slider("Area multiplier", min_value=0.1, max_value=1.0, value=0.5, step=0.05)
 
