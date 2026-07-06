@@ -9,6 +9,7 @@ warnings.filterwarnings("ignore")
 import geopandas as gpd
 import pandas as pd
 import pydeck as pdk
+import requests
 import streamlit as st
 import altair as alt
 
@@ -131,53 +132,75 @@ def calc_areas(gdf_in: gpd.GeoDataFrame, area_multiplier: float) -> gpd.GeoDataF
     return gdf_in
 
 
-# ── Data loading from uploaded bytes ─────────────────────────────────────────
+# ── Data loading from Hugging Face ───────────────────────────────────────────
 
-def _read_gpkg(data: bytes, columns):
-    with tempfile.NamedTemporaryFile(suffix=".gpkg", delete=False) as f:
-        f.write(data)
-        tmp = f.name
+def _secret(key, default=""):
     try:
-        return gpd.read_file(tmp, columns=columns)
+        return st.secrets[key]
+    except Exception:
+        return os.getenv(key, default)
+
+
+def _download(url: str, suffix: str) -> str:
+    """Stream-download url to a temp file and return its path."""
+    token = _secret("HF_TOKEN")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    with requests.get(url, headers=headers, stream=True) as r:
+        r.raise_for_status()
+        f = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        for chunk in r.iter_content(chunk_size=1024 * 1024):
+            f.write(chunk)
+        f.close()
+    return f.name
+
+
+@st.cache_resource
+def load_data() -> gpd.GeoDataFrame:
+    bu3_path = _download(_secret("BU3_URL"), ".gpkg")
+    bu2_path = _download(_secret("BU2_URL"), ".gpkg")
+    try:
+        bu3 = gpd.read_file(bu3_path, columns=["B_TYPE", "FLOOR_QTY", "SHAPE.STArea()", "geometry"])
+        bu3["B_TYPE"] = bu3["B_TYPE"].apply(simplify_btype)
+        bu3["cx"] = bu3.geometry.centroid.x
+        bu3["cy"] = bu3.geometry.centroid.y
+
+        bu2 = gpd.read_file(bu2_path, columns=["CLASSIFICATION", "LANDMARKANAMEENG", "SHAPE.STArea()", "geometry"])
+        bu2 = bu2[bu2["CLASSIFICATION"] != 1].copy()
+        bu2["B_TYPE"] = bu2["CLASSIFICATION"].map(
+            lambda c: BU2_LABELS.get(int(c), "Unclassified") if pd.notna(c) else "Unclassified"
+        )
+        bu2["FLOOR_QTY"] = 1.0
+        bu2["cx"] = bu2.geometry.centroid.x
+        bu2["cy"] = bu2.geometry.centroid.y
+
+        bu3 = bu3.reset_index(drop=True)
+        bu2 = bu2.reset_index(drop=True)
+        bu3_pts = gpd.GeoDataFrame(geometry=bu3.geometry.centroid, crs=bu3.crs)
+        joined = gpd.sjoin(bu3_pts, bu2[["geometry"]], how="inner", predicate="within")
+        covered = set(joined.index.unique())
+        bu3_only = bu3[~bu3.index.isin(covered)].copy()
+        bu3_only["LANDMARKANAMEENG"] = None
+
+        COLS = ["B_TYPE", "FLOOR_QTY", "SHAPE.STArea()", "LANDMARKANAMEENG", "cx", "cy", "geometry"]
+        gdf = pd.concat([bu2[COLS], bu3_only[COLS]], ignore_index=True)
+        return gpd.GeoDataFrame(gdf, geometry="geometry", crs=bu2.crs)
     finally:
-        os.unlink(tmp)
+        os.unlink(bu3_path)
+        os.unlink(bu2_path)
 
 
-def build_dataset(bu3_bytes: bytes, bu2_bytes: bytes) -> gpd.GeoDataFrame:
-    bu3 = _read_gpkg(bu3_bytes, ["B_TYPE", "FLOOR_QTY", "SHAPE.STArea()", "geometry"])
-    bu3["B_TYPE"] = bu3["B_TYPE"].apply(simplify_btype)
-    bu3["cx"] = bu3.geometry.centroid.x
-    bu3["cy"] = bu3.geometry.centroid.y
-
-    bu2 = _read_gpkg(bu2_bytes, ["CLASSIFICATION", "LANDMARKANAMEENG", "SHAPE.STArea()", "geometry"])
-    bu2 = bu2[bu2["CLASSIFICATION"] != 1].copy()
-    bu2["B_TYPE"] = bu2["CLASSIFICATION"].map(
-        lambda c: BU2_LABELS.get(int(c), "Unclassified") if pd.notna(c) else "Unclassified"
-    )
-    bu2["FLOOR_QTY"] = 1.0
-    bu2["cx"] = bu2.geometry.centroid.x
-    bu2["cy"] = bu2.geometry.centroid.y
-
-    bu3 = bu3.reset_index(drop=True)
-    bu2 = bu2.reset_index(drop=True)
-    bu3_pts = gpd.GeoDataFrame(geometry=bu3.geometry.centroid, crs=bu3.crs)
-    joined = gpd.sjoin(bu3_pts, bu2[["geometry"]], how="inner", predicate="within")
-    covered = set(joined.index.unique())
-    bu3_only = bu3[~bu3.index.isin(covered)].copy()
-    bu3_only["LANDMARKANAMEENG"] = None
-
-    COLS = ["B_TYPE", "FLOOR_QTY", "SHAPE.STArea()", "LANDMARKANAMEENG", "cx", "cy", "geometry"]
-    gdf = pd.concat([bu2[COLS], bu3_only[COLS]], ignore_index=True)
-    return gpd.GeoDataFrame(gdf, geometry="geometry", crs=bu2.crs)
-
-
-def build_polygons(poly_bytes: bytes) -> gpd.GeoDataFrame:
-    gdf = gpd.read_file(io.BytesIO(poly_bytes))
-    if gdf.crs is None:
-        gdf = gdf.set_crs("EPSG:4326")
-    else:
-        gdf = gdf.to_crs("EPSG:4326")
-    return gdf
+@st.cache_resource
+def load_polygons() -> gpd.GeoDataFrame:
+    poly_path = _download(_secret("POLY_URL"), ".geojson")
+    try:
+        gdf = gpd.read_file(poly_path)
+        if gdf.crs is None:
+            gdf = gdf.set_crs("EPSG:4326")
+        else:
+            gdf = gdf.to_crs("EPSG:4326")
+        return gdf
+    finally:
+        os.unlink(poly_path)
 
 
 def query_polygon(gdf, poly_geom, area_multiplier):
@@ -208,6 +231,11 @@ def query_buildings_by_type(gdf, poly_geom, b_type):
 
 st.set_page_config(page_title="Building Sector Analysis", layout="wide", initial_sidebar_state="expanded")
 
+with st.spinner("Loading building data..."):
+    gdf = load_data()
+with st.spinner("Loading polygons..."):
+    polygons = load_polygons()
+
 if "zones" not in st.session_state:
     st.session_state.zones = [{"lat": 35.1856, "lon": 33.3823, "name": "Zone 1", "poly_idx": None}]
 if "selected_zone" not in st.session_state:
@@ -220,25 +248,6 @@ if "analysis_cache" not in st.session_state:
 with st.sidebar:
     st.title("Building Sector Analysis")
 
-    st.subheader("Data")
-    bu3_up   = st.file_uploader("BU3 buildings (.gpkg)",  type=["gpkg"])
-    bu2_up   = st.file_uploader("BU2 buildings (.gpkg)",  type=["gpkg"])
-    poly_up  = st.file_uploader("Polygons (.geojson)",    type=["geojson", "json"])
-
-    if bu3_up and bu2_up and poly_up:
-        data_id = (bu3_up.name, bu3_up.size, bu2_up.name, bu2_up.size, poly_up.name, poly_up.size)
-        if st.session_state.get("data_id") != data_id:
-            with st.spinner("Loading datasets (this may take a minute)..."):
-                st.session_state.gdf      = build_dataset(bu3_up.read(), bu2_up.read())
-                st.session_state.polygons = build_polygons(poly_up.read())
-                st.session_state.data_id  = data_id
-                st.session_state.analysis_cache = {}
-    else:
-        st.info("Upload BU3, BU2, and Polygons files to begin.")
-        st.stop()
-
-    gdf      = st.session_state.gdf
-    polygons = st.session_state.polygons
     poly_lookup = {row["SCADASUBSTSHORTID"]: int(idx) for idx, row in polygons.iterrows()}
 
     st.markdown("---")
