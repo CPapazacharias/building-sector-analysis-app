@@ -214,6 +214,30 @@ def load_polygons() -> gpd.GeoDataFrame:
         os.unlink(poly_path)
 
 
+@st.cache_data
+def load_substations():
+    """Optional: pre-load substations CSV from SUBS_URL secret. Returns None if unset."""
+    if not _secret("SUBS_URL"):
+        return None
+    path = _download("SUBS_URL", ".csv")
+    try:
+        return pd.read_csv(path)
+    finally:
+        os.unlink(path)
+
+
+def zones_from_df(df_subs, poly_lookup):
+    return [
+        {
+            "name": str(row.get("name", f"Zone {i+1}")),
+            "lat": float(row["lat"]),
+            "lon": float(row["lon"]),
+            "poly_idx": poly_lookup.get(str(row.get("scada_id", ""))),
+        }
+        for i, (_, row) in enumerate(df_subs.iterrows())
+    ]
+
+
 def query_polygon(gdf, poly_geom, area_multiplier):
     bounds = poly_geom.bounds
     bbox = gdf.cx[bounds[0]:bounds[2], bounds[1]:bounds[3]]
@@ -247,8 +271,14 @@ with st.spinner("Loading building data..."):
 with st.spinner("Loading polygons..."):
     polygons = load_polygons()
 
+poly_lookup = {row["SCADASUBSTSHORTID"]: int(idx) for idx, row in polygons.iterrows()}
+
 if "zones" not in st.session_state:
-    st.session_state.zones = [{"lat": 35.1856, "lon": 33.3823, "name": "Zone 1", "poly_idx": None}]
+    df_subs = load_substations()
+    if df_subs is not None and {"lat", "lon"}.issubset(df_subs.columns):
+        st.session_state.zones = zones_from_df(df_subs, poly_lookup)
+    else:
+        st.session_state.zones = [{"lat": 35.1856, "lon": 33.3823, "name": "Zone 1", "poly_idx": None}]
 if "selected_zone" not in st.session_state:
     st.session_state.selected_zone = 0
 if "analysis_cache" not in st.session_state:
@@ -258,8 +288,6 @@ if "analysis_cache" not in st.session_state:
 
 with st.sidebar:
     st.title("Building Sector Analysis")
-
-    poly_lookup = {row["SCADASUBSTSHORTID"]: int(idx) for idx, row in polygons.iterrows()}
 
     st.markdown("---")
     st.subheader("Parameters")
@@ -274,15 +302,7 @@ with st.sidebar:
         if st.session_state.get("last_upload_id") != file_id:
             df_upload = pd.read_csv(io.BytesIO(uploaded.read()))
             if {"lat", "lon"}.issubset(df_upload.columns):
-                st.session_state.zones = [
-                    {
-                        "name": str(row.get("name", f"Zone {i+1}")),
-                        "lat": float(row["lat"]),
-                        "lon": float(row["lon"]),
-                        "poly_idx": poly_lookup.get(str(row.get("scada_id", ""))),
-                    }
-                    for i, (_, row) in enumerate(df_upload.iterrows())
-                ]
+                st.session_state.zones = zones_from_df(df_upload, poly_lookup)
                 st.session_state.analysis_cache = {}
                 st.session_state.selected_zone = 0
                 st.session_state.last_upload_id = file_id
