@@ -141,12 +141,23 @@ def _secret(key, default=""):
         return os.getenv(key, default)
 
 
-def _download(url: str, suffix: str) -> str:
-    """Stream-download url to a temp file and return its path."""
+def _download(name: str, suffix: str) -> str:
+    """Stream-download the URL in secret `name` to a temp file and return its path."""
+    url = _secret(name)
+    if not url:
+        st.error(f"Secret `{name}` is not set. Add it in Streamlit Cloud → Settings → Secrets.")
+        st.stop()
     token = _secret("HF_TOKEN")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     with requests.get(url, headers=headers, stream=True) as r:
-        r.raise_for_status()
+        if r.status_code != 200:
+            hint = ""
+            if r.status_code == 401:
+                hint = " The dataset is private — set a valid `HF_TOKEN` secret."
+            elif r.status_code == 404:
+                hint = " Check the URL: it must use `/resolve/main/`, not `/blob/main/`."
+            st.error(f"Download failed for `{name}` (HTTP {r.status_code}).{hint}")
+            st.stop()
         f = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
         for chunk in r.iter_content(chunk_size=1024 * 1024):
             f.write(chunk)
@@ -156,8 +167,8 @@ def _download(url: str, suffix: str) -> str:
 
 @st.cache_resource
 def load_data() -> gpd.GeoDataFrame:
-    bu3_path = _download(_secret("BU3_URL"), ".gpkg")
-    bu2_path = _download(_secret("BU2_URL"), ".gpkg")
+    bu3_path = _download("BU3_URL", ".gpkg")
+    bu2_path = _download("BU2_URL", ".gpkg")
     try:
         bu3 = gpd.read_file(bu3_path, columns=["B_TYPE", "FLOOR_QTY", "SHAPE.STArea()", "geometry"])
         bu3["B_TYPE"] = bu3["B_TYPE"].apply(simplify_btype)
@@ -191,7 +202,7 @@ def load_data() -> gpd.GeoDataFrame:
 
 @st.cache_resource
 def load_polygons() -> gpd.GeoDataFrame:
-    poly_path = _download(_secret("POLY_URL"), ".geojson")
+    poly_path = _download("POLY_URL", ".geojson")
     try:
         gdf = gpd.read_file(poly_path)
         if gdf.crs is None:
