@@ -70,6 +70,26 @@ if "selected_zone" not in st.session_state:
 if "analysis_cache" not in st.session_state:
     st.session_state.analysis_cache = {}
 
+# ── Map click → select that substation ────────────────────────────────────────
+# The pydeck chart (key="deck") reruns the script on click; its selection state
+# is read here, before the sidebar renders, so the dropdown follows the click.
+
+event = st.session_state.get("deck")
+if event is not None and getattr(event, "selection", None) is not None:
+    objs = event.selection.get("objects", {}) if hasattr(event.selection, "get") else event.selection.objects
+    picked = None
+    for layer_id in ("pins", "polys"):
+        if objs.get(layer_id):
+            picked = objs[layer_id][0]
+            break
+    if picked is not None:
+        sig = str(event.selection.indices)
+        if st.session_state.get("last_map_pick") != sig:
+            st.session_state.last_map_pick = sig
+            zi = picked.get("zone_idx")
+            if zi is not None and 0 <= int(zi) < len(st.session_state.zones):
+                st.session_state.selected_zone = int(zi)
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
@@ -155,6 +175,8 @@ poly_layer_data = [
         "fill_color": zone_color(i, n_zones) + [60 if i == selected_idx else 20],
         "line_color": zone_color(i, n_zones) + [220],
         "line_width": 4 if i == selected_idx else 1,
+        "name": z["name"],
+        "zone_idx": i,
     }
     for i, z in enumerate(st.session_state.zones)
     if z.get("poly_idx") is not None
@@ -171,7 +193,7 @@ map_df = pd.DataFrame([
 ])
 
 pin_data = [
-    {"lon": z["lon"], "lat": z["lat"], "name": z["name"], "color": zone_color(i, n_zones)}
+    {"lon": z["lon"], "lat": z["lat"], "name": z["name"], "color": zone_color(i, n_zones), "zone_idx": i}
     for i, z in enumerate(st.session_state.zones)
 ]
 
@@ -182,13 +204,13 @@ building_layer = pdk.Layer(
     pickable=True, opacity=0.7,
 )
 polygon_layer = pdk.Layer(
-    "PolygonLayer", data=poly_layer_data,
+    "PolygonLayer", data=poly_layer_data, id="polys",
     get_polygon="polygon", get_fill_color="fill_color",
     get_line_color="line_color", get_line_width="line_width",
-    line_width_min_pixels=1, pickable=False, stroked=True, filled=True,
+    line_width_min_pixels=1, pickable=True, stroked=True, filled=True,
 )
 pin_layer = pdk.Layer(
-    "ScatterplotLayer", data=pin_data,
+    "ScatterplotLayer", data=pin_data, id="pins",
     get_position=["lon", "lat"], get_fill_color="color",
     get_line_color=[255, 255, 255], get_radius=300,
     radius_min_pixels=4, radius_max_pixels=10,
@@ -216,7 +238,8 @@ deck = pdk.Deck(
     tooltip={"html": "<b>{name}</b>{b_type}"},
     map_style="road",
 )
-st.pydeck_chart(deck, use_container_width=True, height=650)
+st.pydeck_chart(deck, use_container_width=True, height=650,
+                on_select="rerun", selection_mode="single-object", key="deck")
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
 
