@@ -120,6 +120,7 @@ with st.sidebar:
         if st.session_state.get("last_upload_id") != file_id:
             df_upload = normalize_subs_df(pd.read_csv(io.BytesIO(uploaded.read())))
             if {"lat", "lon"}.issubset(df_upload.columns):
+                df_upload = df_upload.dropna(subset=["lat", "lon"]).reset_index(drop=True)
                 st.session_state.zones = [
                     {
                         "name": zone_name_from_row(row, i),

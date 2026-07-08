@@ -242,6 +242,7 @@ def zone_name_from_row(row, i):
 
 def zones_from_df(df_subs, poly_lookup):
     df_subs = normalize_subs_df(df_subs)
+    df_subs = df_subs.dropna(subset=["lat", "lon"]).reset_index(drop=True)
     return [
         {
             "name": zone_name_from_row(row, i),
