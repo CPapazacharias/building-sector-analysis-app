@@ -342,16 +342,17 @@ if result and result["building_count"] > 0:
 
         area_df = pd.DataFrame(by_type)
         if "total_area" in area_df.columns:
-            st.markdown("**Area per sector (m²)**")
+            st.markdown("**Area per sector (km²)**")
             area_df["Type"] = area_df["type"].map(sector_of)
             area_df = area_df.groupby("Type", as_index=False)["total_area"].sum().rename(columns={"total_area": "Area"})
+            area_df["Area"] = area_df["Area"] / 1e6
             area_pie = (
                 alt.Chart(area_df)
                 .mark_arc(innerRadius=40)
                 .encode(
                     theta=alt.Theta("Area:Q"),
                     color=alt.Color("Type:N", scale=alt.Scale(domain=pie_domain, range=pie_range), legend=alt.Legend(title="Sector")),
-                    tooltip=["Type:N", alt.Tooltip("Area:Q", format=",.0f", title="Area (m²)")],
+                    tooltip=["Type:N", alt.Tooltip("Area:Q", format=",.4f", title="Area (km²)")],
                 )
                 .properties(height=300)
             )
@@ -365,12 +366,13 @@ if result and result["building_count"] > 0:
         if sel.selection.rows:
             st.session_state.selected_btype = tc_clickable.iloc[sel.selection.rows[0]]["Type"]
     with col_b:
-        st.markdown("**Total area per sector (m²)**")
+        st.markdown("**Total area per sector (km²)**")
         sec = pd.DataFrame(by_type)
         if "total_area" in sec.columns:
             sec["Sector"] = sec["type"].map(sector_of)
-            sec = sec.groupby("Sector", as_index=False)["total_area"].sum().round(1)
-            sec = sec.rename(columns={"total_area": "Total Area (m²)"}).sort_values("Total Area (m²)", ascending=False)
+            sec = sec.groupby("Sector", as_index=False)["total_area"].sum()
+            sec["total_area"] = (sec["total_area"] / 1e6).round(4)
+            sec = sec.rename(columns={"total_area": "Total Area (km²)"}).sort_values("Total Area (km²)", ascending=False)
             st.dataframe(sec, use_container_width=True, hide_index=True)
         else:
             st.caption("Restart the backend to get per-sector areas.")
