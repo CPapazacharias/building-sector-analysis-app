@@ -327,17 +327,35 @@ if result and result["building_count"] > 0:
         pie_df = pie_df.groupby("Type", as_index=False)["Count"].sum()
         pie_domain = sorted(pie_df["Type"].unique())
         pie_range = [color_map.get(t, BTYPE_COLORS[i % len(BTYPE_COLORS)]) for i, t in enumerate(pie_domain)]
+        st.markdown("**Buildings per sector**")
         pie = (
             alt.Chart(pie_df)
             .mark_arc(innerRadius=40)
             .encode(
                 theta=alt.Theta("Count:Q"),
-                color=alt.Color("Type:N", scale=alt.Scale(domain=pie_domain, range=pie_range), legend=alt.Legend(title="B_TYPE")),
+                color=alt.Color("Type:N", scale=alt.Scale(domain=pie_domain, range=pie_range), legend=alt.Legend(title="Sector")),
                 tooltip=["Type:N", "Count:Q"],
             )
             .properties(height=300)
         )
         st.altair_chart(pie, use_container_width=True)
+
+        area_df = pd.DataFrame(by_type)
+        if "total_area" in area_df.columns:
+            st.markdown("**Area per sector (m²)**")
+            area_df["Type"] = area_df["type"].map(sector_of)
+            area_df = area_df.groupby("Type", as_index=False)["total_area"].sum().rename(columns={"total_area": "Area"})
+            area_pie = (
+                alt.Chart(area_df)
+                .mark_arc(innerRadius=40)
+                .encode(
+                    theta=alt.Theta("Area:Q"),
+                    color=alt.Color("Type:N", scale=alt.Scale(domain=pie_domain, range=pie_range), legend=alt.Legend(title="Sector")),
+                    tooltip=["Type:N", alt.Tooltip("Area:Q", format=",.0f", title="Area (m²)")],
+                )
+                .properties(height=300)
+            )
+            st.altair_chart(area_pie, use_container_width=True)
     with col_a:
         st.markdown("**Count per B_TYPE** — click to inspect")
         tc = pd.DataFrame(by_type).rename(columns={"type": "Type", "count": "Count"})[["Type", "Count"]]
