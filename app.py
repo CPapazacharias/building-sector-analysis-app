@@ -58,19 +58,37 @@ BTYPE_COLORS = [
     "#9a6324", "#fffac8", "#800000", "#aaffc3",
 ]
 
-PIE_GROUPS = {
-    "Nursery / kindergarten":      "Education",
-    "Elementary school":           "Education",
-    "Secondary school":            "Education",
-    "Higher education":            "Education",
-    "Church / chapel":             "Religious",
-    "Monastery":                   "Religious",
-    "Mosque":                      "Religious",
-    "Mixed religious / community": "Religious",
-    "Police station":              "Public services",
-    "Post office":                 "Public services",
-    "Public utility office":       "Public services",
+# B_TYPE → sector for chart/table grouping. Unmapped labels fall into "Services".
+SECTOR_GROUPS = {
+    "Residential":                    "Residential",
+    "Villa / holiday home":           "Residential",
+    "Mixed Use":                      "Residential",
+    "Nursery / kindergarten":         "Education",
+    "Elementary school":              "Education",
+    "Secondary school":               "Education",
+    "Higher education":               "Education",
+    "Hotel / apartment building":     "Hotels and restaurants",
+    "Tourist village / resort":       "Hotels and restaurants",
+    "Shopping mall":                  "Trade",
+    "Health centre / hospital":       "Health",
+    "Bank":                           "Private offices",
+    "Broadcast station":              "Private offices",
+    "Community / government":         "Public administration",
+    "Town hall":                      "Public administration",
+    "Public utility office":          "Public administration",
+    "Police station":                 "Public administration",
+    "Fire station":                   "Public administration",
+    "Post office":                    "Public administration",
+    "Electricity substation":         "Gas and water supply",
+    "Petroleum storage / refinery":   "Gas and water supply",
+    "Industrial":                     "Manufacturing",
+    "Factory / industrial plant":     "Manufacturing",
+    "Agriculture":                    "Agriculture",
+    # Everything else (cultural, religious, sports, heritage, unclassified) → Services
 }
+
+def sector_of(btype):
+    return SECTOR_GROUPS.get(btype, "Services")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -495,7 +513,7 @@ if not gdf_result.empty:
     with col_pie:
         type_counts = gdf_result["B_TYPE"].value_counts().reset_index()
         type_counts.columns = ["Type", "Count"]
-        type_counts["Type"] = type_counts["Type"].map(lambda t: PIE_GROUPS.get(t, t))
+        type_counts["Type"] = type_counts["Type"].map(sector_of)
         type_counts = type_counts.groupby("Type", as_index=False)["Count"].sum()
         pie_domain = sorted(type_counts["Type"].unique())
         pie_range = [color_map.get(t, BTYPE_COLORS[i % len(BTYPE_COLORS)]) for i, t in enumerate(pie_domain)]

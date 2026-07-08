@@ -18,6 +18,38 @@ BTYPE_COLORS = [
     "#9a6324", "#fffac8", "#800000", "#aaffc3",
 ]
 
+# B_TYPE → sector for chart/table grouping. Unmapped labels fall into "Services".
+SECTOR_GROUPS = {
+    "Residential":                    "Residential",
+    "Villa / holiday home":           "Residential",
+    "Mixed Use":                      "Residential",
+    "Nursery / kindergarten":         "Education",
+    "Elementary school":              "Education",
+    "Secondary school":               "Education",
+    "Higher education":               "Education",
+    "Hotel / apartment building":     "Hotels and restaurants",
+    "Tourist village / resort":       "Hotels and restaurants",
+    "Shopping mall":                  "Trade",
+    "Health centre / hospital":       "Health",
+    "Bank":                           "Private offices",
+    "Broadcast station":              "Private offices",
+    "Community / government":         "Public administration",
+    "Town hall":                      "Public administration",
+    "Public utility office":          "Public administration",
+    "Police station":                 "Public administration",
+    "Fire station":                   "Public administration",
+    "Post office":                    "Public administration",
+    "Electricity substation":         "Gas and water supply",
+    "Petroleum storage / refinery":   "Gas and water supply",
+    "Industrial":                     "Manufacturing",
+    "Factory / industrial plant":     "Manufacturing",
+    "Agriculture":                    "Agriculture",
+    # Everything else (cultural, religious, sports, heritage, unclassified) → Services
+}
+
+def sector_of(btype):
+    return SECTOR_GROUPS.get(btype, "Services")
+
 
 def hex_to_rgb(h):
     h = h.lstrip("#")
@@ -290,21 +322,8 @@ if result and result["building_count"] > 0:
         st.metric("Agricultural area", f"{result['agricultural_area']:,.0f} m²")
     with col_pie:
         by_type = result["by_type"]
-        PIE_GROUPS = {
-            "Nursery / kindergarten": "Education",
-            "Elementary school":      "Education",
-            "Secondary school":       "Education",
-            "Higher education":       "Education",
-            "Church / chapel":        "Religious",
-            "Monastery":              "Religious",
-            "Mosque":                 "Religious",
-            "Mixed religious / community": "Religious",
-            "Police station":         "Public services",
-            "Post office":            "Public services",
-            "Public utility office":  "Public services",
-        }
         pie_df = pd.DataFrame(by_type).rename(columns={"type": "Type", "count": "Count"})
-        pie_df["Type"] = pie_df["Type"].map(lambda t: PIE_GROUPS.get(t, t))
+        pie_df["Type"] = pie_df["Type"].map(sector_of)
         pie_df = pie_df.groupby("Type", as_index=False)["Count"].sum()
         pie_domain = sorted(pie_df["Type"].unique())
         pie_range = [color_map.get(t, BTYPE_COLORS[i % len(BTYPE_COLORS)]) for i, t in enumerate(pie_domain)]
