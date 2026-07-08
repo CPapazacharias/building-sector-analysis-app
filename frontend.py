@@ -357,11 +357,6 @@ if result and result["building_count"] > 0:
         else:
             st.caption("Restart the backend to get per-sector areas.")
 
-        st.markdown("**Living area per B_TYPE (m²)**")
-        abt = pd.DataFrame(by_type).rename(columns={"type": "Type", "living_area": "Living Area (m²)"})[["Type", "Living Area (m²)"]]
-        abt = abt.sort_values("Living Area (m²)", ascending=False)
-        st.dataframe(abt, use_container_width=True, hide_index=True)
-
     # Individual building detail — fetched only on row click
     selected_btype = st.session_state.get("selected_btype")
     if selected_btype:
