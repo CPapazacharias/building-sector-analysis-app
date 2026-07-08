@@ -539,6 +539,15 @@ if not gdf_result.empty:
         if sel.selection.rows:
             st.session_state.selected_btype = tc_clickable.iloc[sel.selection.rows[0]]["Type"]
     with col_b:
+        st.markdown("**Total area per sector (m²)**")
+        sec = pd.DataFrame({
+            "Sector": gdf_result["B_TYPE"].map(sector_of),
+            "Total Area (m²)": (gdf_result["FLOOR_QTY"].fillna(1) * gdf_result["SHAPE.STArea()"]).round(1),
+        })
+        sec = sec.groupby("Sector", as_index=False)["Total Area (m²)"].sum().round(1)
+        sec = sec.sort_values("Total Area (m²)", ascending=False)
+        st.dataframe(sec, use_container_width=True, hide_index=True)
+
         st.markdown("**Living area per B_TYPE (m²)**")
         abt = gdf_result.groupby("B_TYPE")["living_area"].sum().reset_index()
         abt.columns = ["Type", "Living Area (m²)"]

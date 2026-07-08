@@ -195,12 +195,13 @@ def analyse(req: AnalyseRequest):
 
     within = calc_areas(within, req.area_multiplier)
 
+    within["total_area"] = within["FLOOR_QTY"].fillna(1) * within["SHAPE.STArea()"]
     by_type = (
         within.groupby("B_TYPE")
-        .agg(count=("B_TYPE", "size"), living_area=("living_area", "sum"))
+        .agg(count=("B_TYPE", "size"), living_area=("living_area", "sum"), total_area=("total_area", "sum"))
         .reset_index()
         .rename(columns={"B_TYPE": "type"})
-        .round({"living_area": 1})
+        .round({"living_area": 1, "total_area": 1})
         .to_dict(orient="records")
     )
 

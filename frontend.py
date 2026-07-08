@@ -347,6 +347,16 @@ if result and result["building_count"] > 0:
         if sel.selection.rows:
             st.session_state.selected_btype = tc_clickable.iloc[sel.selection.rows[0]]["Type"]
     with col_b:
+        st.markdown("**Total area per sector (m²)**")
+        sec = pd.DataFrame(by_type)
+        if "total_area" in sec.columns:
+            sec["Sector"] = sec["type"].map(sector_of)
+            sec = sec.groupby("Sector", as_index=False)["total_area"].sum().round(1)
+            sec = sec.rename(columns={"total_area": "Total Area (m²)"}).sort_values("Total Area (m²)", ascending=False)
+            st.dataframe(sec, use_container_width=True, hide_index=True)
+        else:
+            st.caption("Restart the backend to get per-sector areas.")
+
         st.markdown("**Living area per B_TYPE (m²)**")
         abt = pd.DataFrame(by_type).rename(columns={"type": "Type", "living_area": "Living Area (m²)"})[["Type", "Living Area (m²)"]]
         abt = abt.sort_values("Living Area (m²)", ascending=False)
