@@ -34,6 +34,20 @@ def make_color_map(btypes):
     return {bt: BTYPE_COLORS[i % len(BTYPE_COLORS)] for i, bt in enumerate(unique)}
 
 
+def normalize_subs_df(df):
+    """Accept common column variants: long/longitude/lng for lon, latitude for lat."""
+    df = df.rename(columns=lambda c: str(c).strip().lower())
+    return df.rename(columns={"long": "lon", "longitude": "lon", "lng": "lon", "latitude": "lat"})
+
+
+def zone_name_from_row(row, i):
+    for key in ("name", "scada_id"):
+        v = row.get(key)
+        if pd.notna(v) and str(v).strip():
+            return str(v).strip()
+    return f"Zone {i+1}"
+
+
 def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371.0
     dlat = math.radians(lat2 - lat1)
@@ -104,11 +118,11 @@ with st.sidebar:
     if uploaded is not None:
         file_id = (uploaded.name, uploaded.size)
         if st.session_state.get("last_upload_id") != file_id:
-            df_upload = pd.read_csv(io.BytesIO(uploaded.read()))
+            df_upload = normalize_subs_df(pd.read_csv(io.BytesIO(uploaded.read())))
             if {"lat", "lon"}.issubset(df_upload.columns):
                 st.session_state.zones = [
                     {
-                        "name": str(row.get("name", f"Zone {i+1}")),
+                        "name": zone_name_from_row(row, i),
                         "lat": float(row["lat"]),
                         "lon": float(row["lon"]),
                         "poly_idx": poly_lookup.get(str(row.get("scada_id", ""))),

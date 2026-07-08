@@ -226,10 +226,25 @@ def load_substations():
         os.unlink(path)
 
 
+def normalize_subs_df(df):
+    """Accept common column variants: long/longitude/lng for lon, latitude for lat."""
+    df = df.rename(columns=lambda c: str(c).strip().lower())
+    return df.rename(columns={"long": "lon", "longitude": "lon", "lng": "lon", "latitude": "lat"})
+
+
+def zone_name_from_row(row, i):
+    for key in ("name", "scada_id"):
+        v = row.get(key)
+        if pd.notna(v) and str(v).strip():
+            return str(v).strip()
+    return f"Zone {i+1}"
+
+
 def zones_from_df(df_subs, poly_lookup):
+    df_subs = normalize_subs_df(df_subs)
     return [
         {
-            "name": str(row.get("name", f"Zone {i+1}")),
+            "name": zone_name_from_row(row, i),
             "lat": float(row["lat"]),
             "lon": float(row["lon"]),
             "poly_idx": poly_lookup.get(str(row.get("scada_id", ""))),
@@ -275,6 +290,8 @@ poly_lookup = {row["SCADASUBSTSHORTID"]: int(idx) for idx, row in polygons.iterr
 
 if "zones" not in st.session_state:
     df_subs = load_substations()
+    if df_subs is not None:
+        df_subs = normalize_subs_df(df_subs)
     if df_subs is not None and {"lat", "lon"}.issubset(df_subs.columns):
         st.session_state.zones = zones_from_df(df_subs, poly_lookup)
     else:
@@ -320,7 +337,7 @@ with st.sidebar:
     if uploaded is not None:
         file_id = (uploaded.name, uploaded.size)
         if st.session_state.get("last_upload_id") != file_id:
-            df_upload = pd.read_csv(io.BytesIO(uploaded.read()))
+            df_upload = normalize_subs_df(pd.read_csv(io.BytesIO(uploaded.read())))
             if {"lat", "lon"}.issubset(df_upload.columns):
                 st.session_state.zones = zones_from_df(df_upload, poly_lookup)
                 st.session_state.analysis_cache = {}
