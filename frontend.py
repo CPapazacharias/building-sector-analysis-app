@@ -7,6 +7,7 @@ import pandas as pd
 import pydeck as pdk
 import streamlit as st
 import altair as alt
+from shapely.geometry import Point, Polygon
 
 API = "http://localhost:8000"
 
@@ -121,12 +122,23 @@ with st.sidebar:
             df_upload = normalize_subs_df(pd.read_csv(io.BytesIO(uploaded.read())))
             if {"lat", "lon"}.issubset(df_upload.columns):
                 df_upload = df_upload.dropna(subset=["lat", "lon"]).reset_index(drop=True)
+                shapely_polys = [(p["idx"], Polygon(p["polygon"])) for p in all_polygons]
+
+                def find_poly_idx(lon, lat):
+                    pt = Point(lon, lat)
+                    for idx, poly in shapely_polys:
+                        if poly.contains(pt):
+                            return idx
+                    return None
+
                 st.session_state.zones = [
                     {
                         "name": zone_name_from_row(row, i),
                         "lat": float(row["lat"]),
                         "lon": float(row["lon"]),
-                        "poly_idx": poly_lookup.get(str(row.get("scada_id", ""))),
+                        # Match by scada_id; fall back to the polygon the station sits inside
+                        "poly_idx": poly_lookup.get(str(row.get("scada_id", "")),
+                                                    find_poly_idx(float(row["lon"]), float(row["lat"]))),
                     }
                     for i, (_, row) in enumerate(df_upload.iterrows())
                 ]

@@ -12,6 +12,7 @@ import pydeck as pdk
 import requests
 import streamlit as st
 import altair as alt
+from shapely.geometry import Point
 
 BU2_LABELS = {
     0:  "Unclassified",
@@ -240,18 +241,19 @@ def zone_name_from_row(row, i):
     return f"Zone {i+1}"
 
 
-def zones_from_df(df_subs, poly_lookup):
+def zones_from_df(df_subs, poly_lookup, polygons):
     df_subs = normalize_subs_df(df_subs)
     df_subs = df_subs.dropna(subset=["lat", "lon"]).reset_index(drop=True)
-    return [
-        {
-            "name": zone_name_from_row(row, i),
-            "lat": float(row["lat"]),
-            "lon": float(row["lon"]),
-            "poly_idx": poly_lookup.get(str(row.get("scada_id", ""))),
-        }
-        for i, (_, row) in enumerate(df_subs.iterrows())
-    ]
+    zones = []
+    for i, (_, row) in enumerate(df_subs.iterrows()):
+        lat, lon = float(row["lat"]), float(row["lon"])
+        poly_idx = poly_lookup.get(str(row.get("scada_id", "")))
+        if poly_idx is None:
+            # Fall back to the polygon the station is geographically inside
+            hits = polygons.index[polygons.geometry.contains(Point(lon, lat))]
+            poly_idx = int(hits[0]) if len(hits) else None
+        zones.append({"name": zone_name_from_row(row, i), "lat": lat, "lon": lon, "poly_idx": poly_idx})
+    return zones
 
 
 def query_polygon(gdf, poly_geom, area_multiplier):
@@ -294,7 +296,7 @@ if "zones" not in st.session_state:
     if df_subs is not None:
         df_subs = normalize_subs_df(df_subs)
     if df_subs is not None and {"lat", "lon"}.issubset(df_subs.columns):
-        st.session_state.zones = zones_from_df(df_subs, poly_lookup)
+        st.session_state.zones = zones_from_df(df_subs, poly_lookup, polygons)
     else:
         st.session_state.zones = [{"lat": 35.1856, "lon": 33.3823, "name": "Zone 1", "poly_idx": None}]
 if "selected_zone" not in st.session_state:
@@ -340,7 +342,7 @@ with st.sidebar:
         if st.session_state.get("last_upload_id") != file_id:
             df_upload = normalize_subs_df(pd.read_csv(io.BytesIO(uploaded.read())))
             if {"lat", "lon"}.issubset(df_upload.columns):
-                st.session_state.zones = zones_from_df(df_upload, poly_lookup)
+                st.session_state.zones = zones_from_df(df_upload, poly_lookup, polygons)
                 st.session_state.analysis_cache = {}
                 st.session_state.selected_zone = 0
                 st.session_state.last_upload_id = file_id
